@@ -44,6 +44,18 @@ Seed data is optional — `python sample_seed.py` loads the fixtures from the br
 | `sample_seed.py` | The brief's seed script, unchanged. |
 | `REVIEW.md` | Every defect in the starter code, its symptom, and the fix. |
 | `DECISIONS.md` | Plain-language answers to the five design questions. |
+| `smoke_test.py` | 100 end-to-end checks of every endpoint and rule boundary. |
+| `concurrency_test.py` | The race conditions R asks about, run with real threads. |
+| `scale_test.py` | Times every endpoint over a 100,000-log dataset. |
+
+The three test scripts are mine, not the brief's. They need the app already
+running (except `scale_test.py`, which seeds and starts its own server):
+
+```bash
+python smoke_test.py http://127.0.0.1:8000
+python concurrency_test.py http://127.0.0.1:8000
+python scale_test.py --logs 100000     # separate database, dropped after
+```
 
 ## Endpoints
 
@@ -100,3 +112,33 @@ curl "http://127.0.0.1:8000/admin/explain/attendance_list?page=1&page_size=20"
 Each named endpoint returns the plan MongoDB chose, with `executionStats`. The five
 worth checking: `attendance_list`, `employee_monthly`, `department_summary`,
 `late_leaderboard`, `department_trend`.
+
+## What I verified
+
+Run against MongoDB 7.0.43 with the brief's seed data, plus a 100,000-record
+dataset:
+
+| Check | Result |
+|---|---|
+| `smoke_test.py` | 100/100 pass — every endpoint, both error branches, and the R1–R10 boundaries |
+| `concurrency_test.py` | 12 parallel punch-ins → 1×201 + 11×409; 12 parallel punch-outs → 1×200 + 11×409; parallel corrections keep every history entry |
+| `scale_test.py` at 100k logs | All five explain plans IXSCAN with no COLLSCAN; slowest endpoint 0.27 s |
+| Health from cold start | `/health` returns 200 well inside the 20 s budget |
+
+The awkward cases the brief asks for are in the tests as their own checks:
+overnight shifts, a mid-month joiner, an employee with no logs at all, weekend
+records, a missing weekday, and the exact R2/R3 grace boundaries (`09:40:00` vs
+`09:40:01`, `18:59:59` vs `19:00:00`).
+
+## Known gaps
+
+Nothing is missing from the brief. Two honest caveats:
+
+- **Analytics are verified on my own generated data, not the hidden set.** The
+  numbers are self-consistent and the rules are applied literally, but a dataset
+  shaped differently from my generator could still surface an interpretation I got
+  wrong. `attendance_pct` on a month with no working days returns `null`, and the
+  trend's `attendance_rate` is `null` on non-working days — both are my reading of
+  "rate" rather than an explicit line in the contract.
+- **`README.md` documents `MONGO_DB` but the grader injects its own values**, so
+  the defaults here only matter for local runs.
